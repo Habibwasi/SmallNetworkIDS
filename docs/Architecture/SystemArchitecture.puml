@@ -1,0 +1,32 @@
+@startuml
+!theme plain
+title System Architecture: AI Intrusion Detector
+
+node "Network Environment" {
+    [IoT Devices] as iot
+    [Workstations] as pc
+    cloud "Internet" as web
+}
+
+package "IDS Application (.NET Core)" {
+    [Packet Sniffer (SharpPcap)] as sniffer
+    [Feature Extractor] as extractor
+    [ML Inference Engine (ONNX)] as ml
+    [Alert Manager] as alerts
+}
+
+database "Logs & Baselines" {
+    [SQLite/JSON Store] as db
+}
+
+iot <--> web : Traffic
+pc <--> web : Traffic
+sniffer <-up- iot : Mirrored Traffic
+sniffer <-up- pc : Mirrored Traffic
+
+sniffer -> extractor : Raw Packets
+extractor -> ml : Feature Vectors
+ml -> alerts : Anomaly Score
+alerts -> db : Log Event
+alerts -> [User Dashboard] : Notification
+@endum

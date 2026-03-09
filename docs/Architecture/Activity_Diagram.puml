@@ -1,0 +1,22 @@
+@startuml
+start
+:Capture Raw Packet;
+if (Is Packet Valid?) then (yes)
+  :Extract IP & Port (5-tuple);
+  :Update/Create Network Flow;
+  if (Flow Duration > Window?) then (yes)
+    :Calculate Stats (Bytes/sec, Pkt Gap);
+    :Normalize Features;
+    :Run ML Inference (Scikit-Learn/ONNX);
+    if (Anomaly Score > Threshold?) then (High)
+      :Trigger Alert;
+      :Suggest Firewall Rule;
+    else (Low)
+      :Update Baseline;
+    endif
+  endif
+else (no)
+  :Discard;
+endif
+stop
+@endum
