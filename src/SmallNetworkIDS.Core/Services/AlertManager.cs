@@ -26,6 +26,32 @@ public class AlertManager
     /// <summary>
     /// Process inference result and raise alert if needed
     /// </summary>
+    public AlertEvent? ProcessInferenceResult(NetworkFlow flow, FeatureVector features, AnomalyResult result)
+    {
+        if (!result.IsAnomaly || result.SuggestedAlertType == null)
+        {
+            return null;
+        }
+        
+        var alert = new AlertEvent
+        {
+            Type = result.SuggestedAlertType.Value,
+            Severity = GetSeverity(result.AnomalyScore),
+            SourceIp = flow.SourceIp,
+            DestinationIp = flow.DestinationIp,
+            Description = GenerateDescription(result.SuggestedAlertType.Value, flow, features),
+            AnomalyScore = result.AnomalyScore,
+            SuggestedAction = GenerateFirewallRule(result.SuggestedAlertType.Value, flow),
+            RelatedFlow = flow
+        };
+        
+        RaiseAlert(alert);
+        return alert;
+    }
+
+    /// <summary>
+    /// Process inference result and raise alert if needed (legacy overload)
+    /// </summary>
     public AlertEvent? ProcessInferenceResult(
         NetworkFlow flow, 
         FeatureVector features, 

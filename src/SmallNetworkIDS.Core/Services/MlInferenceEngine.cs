@@ -5,15 +5,22 @@ using SmallNetworkIDS.Core.Models;
 namespace SmallNetworkIDS.Core.Services;
 
 /// <summary>
-/// ML inference engine using ONNX runtime for anomaly detection
+/// ML inference engine using ONNX runtime for anomaly detection.
+/// Supports loading Scikit-learn models exported as ONNX.
 /// </summary>
 public class MlInferenceEngine : IDisposable
 {
     private InferenceSession? _session;
     private bool _modelLoaded;
+    private string? _inputName;
     
     // Fallback rule-based detection when no model is loaded
     private readonly FeatureExtractor _featureExtractor;
+    
+    /// <summary>
+    /// Threshold above which a flow is considered anomalous
+    /// </summary>
+    public double AnomalyThreshold { get; set; } = 0.6;
     
     public bool IsModelLoaded => _modelLoaded;
     
@@ -23,7 +30,7 @@ public class MlInferenceEngine : IDisposable
     }
     
     /// <summary>
-    /// Load ONNX model from file
+    /// Load ONNX model exported from Scikit-learn
     /// </summary>
     public void LoadModel(string modelPath)
     {
@@ -36,8 +43,11 @@ public class MlInferenceEngine : IDisposable
         try
         {
             _session = new InferenceSession(modelPath);
+            _inputName = _session.InputMetadata.Keys.FirstOrDefault() ?? "input";
             _modelLoaded = true;
+            
             Console.WriteLine($"[ML] Loaded model: {modelPath}");
+            Console.WriteLine($"[ML] Input: {_inputName}, Features: {_session.InputMetadata[_inputName].Dimensions.Length}D");
         }
         catch (Exception ex)
         {
@@ -46,9 +56,9 @@ public class MlInferenceEngine : IDisposable
     }
     
     /// <summary>
-    /// Run inference on feature vector and return anomaly score (0-1)
+    /// Run inference on feature vector and return anomaly detection result
     /// </summary>
-    public (double AnomalyScore, AlertType? SuggestedType) Predict(FeatureVector features)
+    public AnomalyResult Predict(FeatureVector features)
     {
         if (_modelLoaded && _session != null)
         {
@@ -58,32 +68,73 @@ public class MlInferenceEngine : IDisposable
         return PredictWithRules(features);
     }
     
-    private (double AnomalyScore, AlertType? SuggestedType) PredictWithModel(FeatureVector features)
+    /// <summary>
+    /// Legacy method for backward compatibility
+    /// </summary>
+    public (double AnomalyScore, AlertType? SuggestedType) PredictLegacy(FeatureVector features)
+    {
+        var result = Predict(features);
+        return (result.AnomalyScore, result.SuggestedAlertType);
+    }
+    
+    private AnomalyResult PredictWithModel(FeatureVector features)
     {
         try
         {
-            var inputTensor = new DenseTensor<float>(features.ToArray(), [1, FeatureVector.FeatureCount]);
+            var featureArray = features.ToArray();
+            var inputTensor = new DenseTensor<float>(featureArray, [1, FeatureVector.FeatureCount]);
             var inputs = new List<NamedOnnxValue>
             {
-                NamedOnnxValue.CreateFromTensor("input", inputTensor)
+                NamedOnnxValue.CreateFromTensor(_inputName ?? "input", inputTensor)
             };
             
             using var results = _session!.Run(inputs);
-            var output = results.First().AsEnumerable<float>().First();
+            var outputName = results.First().Name;
             
-            // Assume model outputs anomaly score 0-1
-            var score = Math.Clamp(output, 0, 1);
-            var type = ClassifyAnomaly(features, score);
+            double score;
             
-            return (score, type);
+            // Handle different Scikit-learn model output formats
+            if (outputName.Contains("label", StringComparison.OrdinalIgnoreCase))
+            {
+                // Classification model: -1 = anomaly, 1 = normal (e.g., IsolationForest, OneClassSVM)
+                var label = results.First().AsEnumerable<long>().FirstOrDefault();
+                score = label == -1 ? 0.8 : 0.2;
+                
+                // Try to get probability/score if available
+                var probResult = results.FirstOrDefault(r => r.Name.Contains("score", StringComparison.OrdinalIgnoreCase));
+                if (probResult != null)
+                {
+                    var scores = probResult.AsEnumerable<float>().ToArray();
+                    // IsolationForest: lower score = more anomalous
+                    score = 1.0 - Math.Clamp(scores.FirstOrDefault(), 0, 1);
+                }
+            }
+            else
+            {
+                // Direct score output
+                var output = results.First().AsEnumerable<float>().First();
+                score = Math.Clamp(output, 0, 1);
+            }
+            
+            var alertType = ClassifyAnomaly(features, score);
+            
+            return new AnomalyResult
+            {
+                IsAnomaly = score >= AnomalyThreshold,
+                AnomalyScore = score,
+                SuggestedAlertType = alertType,
+                Confidence = Math.Abs(score - 0.5) * 2, // Higher confidence near 0 or 1
+                FromModel = true
+            };
         }
-        catch
+        catch (Exception ex)
         {
+            Console.WriteLine($"[ML] Inference error: {ex.Message}. Falling back to rules.");
             return PredictWithRules(features);
         }
     }
     
-    private (double AnomalyScore, AlertType? SuggestedType) PredictWithRules(FeatureVector features)
+    private AnomalyResult PredictWithRules(FeatureVector features)
     {
         double score = 0;
         AlertType? type = null;
@@ -105,7 +156,7 @@ public class MlInferenceEngine : IDisposable
         // DDoS flood: very high packets/bytes per second
         if (features.PacketsPerSecond > 0.5f || features.BytesPerSecond > 0.5f)
         {
-            var floodScore = Math.Max(features.PacketsPerSecond, features.BytesPerSecond);
+            var floodScore = (double)Math.Max(features.PacketsPerSecond, features.BytesPerSecond);
             if (floodScore > score)
             {
                 score = floodScore;
@@ -114,13 +165,20 @@ public class MlInferenceEngine : IDisposable
         }
         
         // General anomaly: unusual flag combinations
-        if (features.FinRstRatio > 0.5f && features.PacketCount() < 10)
+        if (features.FinRstRatio > 0.5f)
         {
             score = Math.Max(score, 0.4 + features.FinRstRatio * 0.3);
             type ??= AlertType.AnomalousTraffic;
         }
         
-        return (score, type);
+        return new AnomalyResult
+        {
+            IsAnomaly = score >= AnomalyThreshold,
+            AnomalyScore = score,
+            SuggestedAlertType = type,
+            Confidence = score > 0.5 ? score : 1 - score,
+            FromModel = false
+        };
     }
     
     private static AlertType? ClassifyAnomaly(FeatureVector features, double score)
@@ -138,10 +196,4 @@ public class MlInferenceEngine : IDisposable
     {
         _session?.Dispose();
     }
-}
-
-// Extension method for FeatureVector
-file static class FeatureVectorExtensions
-{
-    public static int PacketCount(this FeatureVector _) => 10; // Placeholder
 }

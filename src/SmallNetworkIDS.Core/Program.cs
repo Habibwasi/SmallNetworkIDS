@@ -1,4 +1,5 @@
-﻿using SmallNetworkIDS.Core.Services;
+﻿using SmallNetworkIDS.Core.Models;
+using SmallNetworkIDS.Core.Services;
 
 namespace SmallNetworkIDS.Core;
 
@@ -16,6 +17,8 @@ class Program
         var featureExtractor = new FeatureExtractor();
         var mlEngine = new MlInferenceEngine(featureExtractor);
         var alertManager = new AlertManager();
+        var dataExporter = new DataExporter();
+        var collectedFlows = new List<NetworkFlow>();
         
         // Try to load ML model if exists
         var modelPath = args.Length > 0 ? args[0] : "model.onnx";
@@ -63,20 +66,21 @@ class Program
                 // Harvest and analyze flows
                 foreach (var flow in sniffer.HarvestExpiredFlows(TimeSpan.FromSeconds(30)))
                 {
+                    collectedFlows.Add(flow); // Collect for export
                     var features = featureExtractor.ExtractFeatures(flow);
-                    var (score, alertType) = mlEngine.Predict(features);
-                    alertManager.ProcessInferenceResult(flow, features, score, alertType);
+                    var result = mlEngine.Predict(features);
+                    alertManager.ProcessInferenceResult(flow, features, result);
                 }
                 
                 // Also check active flows for ongoing attacks
                 foreach (var flow in sniffer.ActiveFlows.Values.Where(f => f.DurationSeconds > 5))
                 {
                     var features = featureExtractor.ExtractFeatures(flow);
-                    var (score, alertType) = mlEngine.Predict(features);
+                    var result = mlEngine.Predict(features);
                     
-                    if (score >= alertManager.AnomalyThreshold)
+                    if (result.IsAnomaly)
                     {
-                        alertManager.ProcessInferenceResult(flow, features, score, alertType);
+                        alertManager.ProcessInferenceResult(flow, features, result);
                     }
                 }
                 
@@ -108,7 +112,28 @@ class Program
         }
         
         Console.WriteLine("\n[*] Capture stopped.");
-        
+
+        // Add remaining active flows to collection
+        collectedFlows.AddRange(sniffer.ActiveFlows.Values);
+
+        // Export collected data for ML training
+        if (collectedFlows.Count > 0)
+        {
+            Console.Write("\nExport flow data for ML training? (csv/json/both/n): ");
+            var exportChoice = Console.ReadLine()?.ToLower() ?? "n";
+            
+            var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            
+            if (exportChoice is "csv" or "both")
+            {
+                dataExporter.ExportToCsv(collectedFlows, $"training_data_{timestamp}.csv", "normal");
+            }
+            if (exportChoice is "json" or "both")
+            {
+                dataExporter.ExportToJson(collectedFlows, $"training_data_{timestamp}.json", "normal");
+            }
+        }
+
         // Print summary
         var alerts = alertManager.GetRecentAlerts(10).ToList();
         if (alerts.Count != 0)
