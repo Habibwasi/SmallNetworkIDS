@@ -8,7 +8,6 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
-builder.Services.AddSwaggerGen();
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowReactApp", policy =>
@@ -29,8 +28,6 @@ builder.Services.AddSingleton<IDSService>();
 
 var app = builder.Build();
 
-app.UseSwagger();
-app.UseSwaggerUI();
 app.UseCors("AllowReactApp");
 app.UseHttpsRedirection();
 app.UseAuthorization();

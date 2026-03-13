@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Alert, AlertCircle, Zap, Activity } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Zap, Activity } from 'lucide-react';
 import { apiClient } from '../api/client';
 import './AlertsPanel.css';
 
@@ -43,7 +43,7 @@ export function AlertsPanel() {
       case 'DDoSFlood':
         return <Zap size={16} />;
       default:
-        return <Alert size={16} />;
+        return <AlertTriangle size={16} />;
     }
   };
 
