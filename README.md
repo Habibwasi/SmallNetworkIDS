@@ -19,13 +19,61 @@ A lightweight network intrusion detection system (IDS) that uses machine learnin
 ## Quick Start
 
 ```bash
-# Build and run
+# Build and run IDS core
 cd src/SmallNetworkIDS.Core
 dotnet run
 
 # Select network interface and optional BPF filter
 # Press Ctrl+C to stop and export data
 ```
+
+## Dashboard & Web API
+
+A modern web-based dashboard for real-time monitoring of the IDS with REST API backend.
+
+### Running the API Server
+
+```bash
+cd src/SmallNetworkIDS.Api
+dotnet run
+```
+
+API runs at `http://localhost:5000` with Swagger UI at `/swagger/ui`
+
+### Running the Dashboard
+
+```bash
+cd dashboard
+npm install
+npm start
+```
+
+Dashboard opens at `http://localhost:3000`
+
+### Dashboard Features
+
+- 📊 **Real-time Alerts**: Live feed of detected threats with severity levels
+- 📈 **Network Statistics**: Flow counts, traffic volume, and unique IPs
+- 🎯 **Top Threats**: Ranking of most aggressive source IPs
+- 📉 **Anomaly Charts**: Distribution of alert types and network patterns
+- 🏥 **System Health**: Connection status and uptime monitoring
+
+### API Endpoints
+
+**Alerts**
+- `GET /api/alerts/recent` - Recent alerts (limit query param)
+- `GET /api/alerts/stats` - Alert statistics
+- `GET /api/alerts/by-type/{type}` - Filter by alert type
+
+**Flows**
+- `GET /api/flows/recent` - Recent network flows
+- `GET /api/flows/stats` - Network statistics
+
+**Threats**
+- `GET /api/threats/top` - Top threat sources
+
+**System**
+- `GET /api/system/health` - Health and uptime
 
 ## Testing
 
