@@ -27,6 +27,31 @@ dotnet run
 # Press Ctrl+C to stop and export data
 ```
 
+## Testing
+
+The project includes a comprehensive test suite with 50 unit tests covering all core components.
+
+### Running Tests
+
+```bash
+# Run all tests
+dotnet test
+
+# Run with verbose output
+dotnet test -v detailed
+
+# Run specific test class
+dotnet test --filter "ClassName=FeatureExtractorTests"
+```
+
+### Test Coverage
+
+- **Model Tests** (10): NetworkFlow, FeatureVector, AnomalyResult
+- **Service Tests** (29): FeatureExtractor, MlInferenceEngine, AlertManager, DataExporter
+- **Integration Tests** (11): End-to-end detection pipelines, port scan detection, data export
+
+Test project location: `src/SmallNetworkIDS.Core.Tests/`
+
 ## Training a Model
 
 1. Run the IDS to collect training data (exported on exit)
